@@ -46,6 +46,8 @@
 #include <util/delay.h>
 #include <wiring.h>
 
+
+
 #include "kegboard.h"
 #include "kegboard_config.h"
 #include "ds1820.h"
@@ -166,6 +168,19 @@ static DS1820Sensor gThermoSensor;
 static OneWire gOnewireIdBus(KB_PIN_ONEWIRE_PRESENCE);
 #endif
 
+//Ethernet libraries.
+#include <Ethernet.h>
+#include "Dhcp.h"
+#include "Dns.h"
+
+byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED };
+const char* ip_to_str(const uint8_t*);
+byte dnsServerIp[] = { 8, 8, 8, 8};
+boolean ipAcquired = false;
+DnsClass googleDns;
+byte serverIp[] = {192,168,1,152};
+Client client(serverIp, 8000);
+
 //
 // ISRs
 //
@@ -251,6 +266,8 @@ void writeThermoPacket(DS1820Sensor *sensor)
   packet.AddTag(KBM_THERMO_READING_TAG_SENSOR_NAME, 23, name);
   packet.AddTag(KBM_THERMO_READING_TAG_SENSOR_READING, sizeof(temp), (char*)(&temp));
   packet.Print();
+  
+  writeEthernetThermoPacket(sensor, name, &temp);
 }
 #endif
 
@@ -380,7 +397,83 @@ void setup()
   digitalWrite(KB_PIN_RFID_RESET, HIGH);
 #endif
 
+  
+  checkConnection(mac);
+
+  
   writeHelloPacket();
+}
+
+int checkConnection(uint8_t *mac)
+{
+  Serial.println("getting ip...");
+  int result = Dhcp.beginWithDHCP(mac);
+  if(result == 1)
+  {
+    ipAcquired = true;
+    
+    byte buffer[6];
+    Serial.println("ip acquired...");
+    
+    Dhcp.getMacAddress(buffer);
+    Serial.print("mac address: ");
+    printArray(&Serial, ":", buffer, 6, 16);
+    
+    Dhcp.getLocalIp(buffer);
+    Serial.print("ip address: ");
+    printArray(&Serial, ".", buffer, 4, 10);
+    
+    Dhcp.getSubnetMask(buffer);
+    Serial.print("subnet mask: ");
+    printArray(&Serial, ".", buffer, 4, 10);
+    
+    Dhcp.getGatewayIp(buffer);
+    Serial.print("gateway ip: ");
+    printArray(&Serial, ".", buffer, 4, 10);
+    
+    Dhcp.getDhcpServerIp(buffer);
+    Serial.print("dhcp server ip: ");
+    printArray(&Serial, ".", buffer, 4, 10);
+    
+    Dhcp.getDnsServerIp(buffer);
+    Serial.print("dns server ip: ");
+    printArray(&Serial, ".", buffer, 4, 10);
+    
+     
+
+  }
+  else
+    Serial.println("unable to acquire ip address...");
+}
+
+void writeEthernetThermoPacket(DS1820Sensor *sensor, char* name, long* temp)
+{
+  Serial.println("Writing Ethernet packet");
+  if(client.connect())
+  {
+/*    client.println("POST /api/thermo-sensors/kegboard.thermo-1c0000032621d228/ HTTP/1.1");
+    client.println("Host: 192.168.1.152");
+//    client.println("Accept: ");
+    client.println("Content-type: application/x-www-form-urlencoded");
+    client.println("Content-length: 62");         
+    char* apiKey = "api%5Fkey=10000001b11e0d9a4382cc301841f3bf8b113d49&temp%5Fc=80";
+    Serial.print("Length");
+    Serial.println(strlen(apiKey));
+    delay(500);
+//    client.println(strlen(apiKey));
+ /*   client.println("Connection: Close");*/
+
+
+    client.println();
+    Serial.println("Packed written");
+
+  }
+  else
+    Serial.println("Client couldn't connect to write thermo packet.");
+
+  
+    
+ 
 }
 
 void updateTimekeeping() {
@@ -744,6 +837,8 @@ void stepRelayWatchdog() {
 
 void loop()
 {
+//   checkConnection(mac);
+  
   updateTimekeeping();
 
   readIncomingSerialData();
@@ -767,6 +862,23 @@ void loop()
 #if KB_ENABLE_SELFTEST
   doTestPulse();
 #endif
+
+
+}
+
+void printArray(Print *output, char* delimeter, byte* data, int len, int base)
+{
+  char buf[10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  
+  for(int i = 0; i < len; i++)
+  {
+    if(i != 0)
+      output->print(delimeter);
+      
+    output->print(itoa(data[i], buf, base));
+  }
+  
+  output->println();
 }
 
 // vim: syntax=c
